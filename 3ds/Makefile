@@ -80,7 +80,7 @@ export _3DSXFLAGS	:=	--smdh=$(CURDIR)/$(TARGET).smdh
 .PHONY: all clean
 
 all: $(BUILD)
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile $(OUTPUT).3dsx
 
 $(BUILD):
 	@mkdir -p $@
@@ -91,6 +91,8 @@ clean:
 
 #---------------------------------------------------------------------------------
 else
+
+.DEFAULT_GOAL := $(OUTPUT).3dsx
 
 # Main targets inside $(BUILD)
 $(OUTPUT).3dsx	:	$(OUTPUT).elf $(_3DSXDEPS)

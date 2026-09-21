@@ -7,6 +7,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-3dsx:
     runs-on: ubuntu-latest
@@ -25,23 +28,32 @@ jobs:
         run: |
           export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:$PATH
           cd 3ds
-          make 2>&1 | tee /tmp/build.log
-          echo "=== Top dir listing ==="
-          ls -la
-          echo "=== Build dir listing ==="
-          ls -la build/ || true
+          make clean
+          make
+          echo "## Build Log" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ls -la >> $GITHUB_STEP_SUMMARY
+          echo "--- build/ ---" >> $GITHUB_STEP_SUMMARY
+          ls -la build/ >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload 3DSX Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ZelNeD-3dsx
           path: |
-            **/*.3dsx
-            **/*.smdh
+            3ds/ZelNeD.3dsx
+            3ds/ZelNeD.smdh
 
-      - name: Upload Build Log
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Publish Direct Download Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
         with:
-          name: build-log
-          path: /tmp/build.log
+          tag_name: latest-build
+          name: "ZelNeD 3DS Executable"
+          body: "Official compiled Nintendo 3DS executable (ZelNeD.3dsx) ready for Homebrew Launcher."
+          draft: false
+          prerelease: false
+          files: |
+            3ds/ZelNeD.3dsx
+            3ds/ZelNeD.smdh
