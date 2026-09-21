@@ -29,6 +29,9 @@ static uint32_t __attribute__((aligned(4096))) s_soc_buf[SOC_BUFSIZE / 4];
 
 int main() {
     // ── System service initialization ─────────────────────────────────────────
+    // Enable 804 MHz clock mode and extra L2 cache on New 3DS (no-op on Old 3DS)
+    osSetSpeedupEnable(true);
+
     romfsInit();
     cfguInit();
     acuInit();

@@ -207,7 +207,7 @@ static bool receive_file(int sock, const ZelNedFileHeader& fhdr,
         float elapsed_s = elapsed_ms / 1000.0f;
         LightLock_Lock(&s_stats_lock);
         s_stats.bytes_received += chdr.compressed_size;
-        s_stats.bytes_written  += (uint64_t)decompressed;
+        s_stats.bytes_written  += (uint64_t)write_len;
         s_stats.chunks_ok       = chunks_received;
         s_stats.current_chunk   = ci + 1;
         s_stats.net_kbps  = elapsed_s > 0.0f ? (s_stats.bytes_received / 1024.0f / elapsed_s) : 0.0f;
