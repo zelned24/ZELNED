@@ -42,6 +42,8 @@ bool fs_path_safe(const std::string& rel_path) {
 }
 
 bool fs_mkdir_recursive(const std::string& rel_path) {
+    if (!fs_path_safe(rel_path)) return false;  // FIX #5: sanitize directory path
+
     std::string full = "sdmc:/" + rel_path;
     std::string current;
     for (char c : full) {
@@ -65,10 +67,21 @@ bool FsWriter::open(const std::string& rel_path, uint64_t resume_offset) {
     // Ensure parent directories exist
     size_t last_slash = rel_path.rfind('/');
     if (last_slash != std::string::npos) {
-        fs_mkdir_recursive(rel_path.substr(0, last_slash));
+        if (!fs_mkdir_recursive(rel_path.substr(0, last_slash))) return false;
     }
 
-    const char* mode = (resume_offset > 0) ? "ab" : "wb";
+    const char* mode = "wb";
+    if (resume_offset > 0) {
+        // FIX #13: verify existing .tmp file size exactly matches resume_offset
+        struct stat st;
+        if (stat(_tmp_path.c_str(), &st) == 0 && (uint64_t)st.st_size == resume_offset) {
+            mode = "ab";
+        } else {
+            // Temp file missing or size mismatch; reject to avoid corrupting file
+            return false;
+        }
+    }
+
     _handle = fopen(_tmp_path.c_str(), mode);
     return (_handle != nullptr);
 }

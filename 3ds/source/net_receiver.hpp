@@ -29,5 +29,9 @@ void receiver_run();
 // Get a snapshot of current stats (thread-safe)
 ReceiverStats receiver_get_stats();
 
+// Pause or resume receiving chunks
+void receiver_set_paused(bool paused);
+bool receiver_is_paused();
+
 // Request the receiver to stop after the current transfer
 void receiver_stop();

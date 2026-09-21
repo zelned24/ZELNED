@@ -38,6 +38,11 @@ void ui_log(const char* msg) {
     s_log_head++;
 }
 
+void ui_log_clear() {
+    memset(s_log, 0, sizeof(s_log));
+    s_log_head = 0;
+}
+
 bool ui_init() {
     gfxInitDefault();
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
@@ -65,8 +70,8 @@ static void draw_text(float x, float y, float sz, uint32_t color, const char* fm
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
 
+    // NOTE: TextBuf is cleared ONCE per frame in ui_draw() — do NOT call Clear() here
     C2D_Text text;
-    C2D_TextBufClear(s_tbuf);
     C2D_TextParse(&text, s_tbuf, buf);
     C2D_TextOptimize(&text);
     C2D_DrawText(&text, C2D_WithColor, x, y, 0.5f, sz, sz, color);
@@ -95,6 +100,9 @@ void ui_draw(const ReceiverStats& stats) {
 
     C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 
+    // FIX #9: clear TextBuf ONCE per frame, not once per draw_text() call
+    C2D_TextBufClear(s_tbuf);
+
     // ── TOP SCREEN (400×240) ─────────────────────────────────────────────────
     C2D_TargetClear(s_top, C_BG);
     C2D_SceneBegin(s_top);
@@ -102,8 +110,10 @@ void ui_draw(const ReceiverStats& stats) {
     // Header bar
     draw_rect(0, 0, 400, 26, C_PANEL);
     draw_text(8, 4, 0.55f, C_BLUE, "\u2B21 Zel.NeD  v1.0");
-    // Live indicator
-    if (stats.connected) {
+    // Live / Pause / Idle indicator
+    if (stats.paused) {
+        draw_text(310, 4, 0.45f, C_YELLOW, "\u23F8 PAUSED");
+    } else if (stats.connected) {
         draw_text(350, 4, 0.45f, pulse_color(anim_t), "\u25CF LIVE");
     } else {
         draw_text(350, 4, 0.45f, C_DIM, "\u25CB Idle");
@@ -158,18 +168,16 @@ void ui_draw(const ReceiverStats& stats) {
     draw_rect(0, 0, 320, 26, C_PANEL);
     draw_text(8, 4, 0.52f, C_BLUE, "\u2B21 Zel.NeD \u2014 Receiver");
 
-    // Get IP
-    char ip_buf[24] = "Not connected";
-    if (stats.connected) {
-        // Read local IP from gethostname (simplified)
-        uint32_t ip = gethostid();
-        snprintf(ip_buf, sizeof(ip_buf), "%lu.%lu.%lu.%lu",
-                 (ip >> 24) & 0xFF, (ip >> 16) & 0xFF,
-                 (ip >> 8) & 0xFF, ip & 0xFF);
-    } else {
-        struct in_addr addr;
-        addr.s_addr = gethostid();
-        snprintf(ip_buf, sizeof(ip_buf), "%s", inet_ntoa(addr));
+    // FIX #3: gethostid() in libctru returns IP in network byte order (big-endian).
+    // ntohl() converts it to host order before bit-shifting.
+    char ip_buf[24] = "Acquiring IP...";
+    {
+        uint32_t ip_host = ntohl((uint32_t)gethostid());
+        if (ip_host != 0) {
+            snprintf(ip_buf, sizeof(ip_buf), "%u.%u.%u.%u",
+                     (ip_host >> 24) & 0xFF, (ip_host >> 16) & 0xFF,
+                     (ip_host >> 8)  & 0xFF,  ip_host & 0xFF);
+        }
     }
 
     int by = 34;

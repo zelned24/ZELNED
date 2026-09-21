@@ -10,3 +10,6 @@ void ui_exit();
 
 // Draw one frame (call every tick from main loop)
 void ui_draw(const ReceiverStats& stats);
+
+// Clear UI log buffer
+void ui_log_clear();

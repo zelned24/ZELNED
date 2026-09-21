@@ -49,10 +49,10 @@ static void beacon_thread_fn(void* arg) {
 
 void beacon_start(const char* console_name) {
     s_beacon_running = true;
-    // Stack size: 4 KB is sufficient for this simple thread
+    // FIX #10: Stack size 16 KB for socket operations in ctrulib
     s_beacon_thread = threadCreate(beacon_thread_fn,
                                    (void*)console_name,
-                                   4096,
+                                   16384,
                                    0x30,   // priority (lower = higher prio)
                                    -2,     // CPU core (-2 = any)
                                    false);

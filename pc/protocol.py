@@ -9,7 +9,6 @@ import struct
 import socket
 import time
 import zlib
-import lz4.frame as lz4f
 import lz4.block as lz4b
 from pathlib import Path
 from typing import Optional, Callable
@@ -74,14 +73,15 @@ class ThrottleController:
             return   # no limit
         now = time.monotonic()
         elapsed = now - self._last_refill
-        self._last_refill = now
-        self._tokens = min(self.bytes_per_sec, self._tokens + elapsed * self.bytes_per_sec)
+        self._tokens = min(float(self.bytes_per_sec), self._tokens + elapsed * self.bytes_per_sec)
         if self._tokens < n_bytes:
             sleep_time = (n_bytes - self._tokens) / self.bytes_per_sec
             time.sleep(sleep_time)
-            self._tokens = 0
+            self._tokens = 0.0
+            self._last_refill = time.monotonic()  # FIX #8: reset timer AFTER sleeping
         else:
             self._tokens -= n_bytes
+            self._last_refill = now
 
 
 def _sendall_exact(sock: socket.socket, data: bytes):
@@ -192,6 +192,10 @@ def send_file(
 
             # Compress with LZ4 block (fastest mode, no frame overhead)
             compressed = lz4b.compress(raw_block, store_size=False)
+            # IMPROVEMENT B: Adaptive compression — if savings < 2%, send raw uncompressed
+            if len(compressed) >= uncompressed_size * 0.98:
+                compressed = raw_block
+
             crc = zlib.crc32(compressed) & 0xFFFFFFFF
 
             chunk_hdr = struct.pack(

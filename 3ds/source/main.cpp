@@ -8,13 +8,15 @@
  */
 #include <3ds.h>
 #include <stdio.h>
+#include <unistd.h>
+#include <arpa/inet.h>
 #include "ui.hpp"
 #include "net_beacon.hpp"
 #include "net_receiver.hpp"
 #include "fs_writer.hpp"
 
-// Console name shown in the PC discovery list
-#define CONSOLE_NAME "3DS XL - ZelNeD"
+// Fallback console name
+static char s_console_name[32] = "Nintendo 3DS (ZelNeD)";
 
 // ── Receiver thread ────────────────────────────────────────────────────────────
 static void receiver_thread_fn(void*) {
@@ -22,7 +24,8 @@ static void receiver_thread_fn(void*) {
 }
 
 // ── socInit buffer ─────────────────────────────────────────────────────────────
-static uint32_t s_soc_buf[SOC_BUFSIZE / 4];
+// FIX #11: 4 KB page alignment required for DMA/SOC buffer in libctru
+static uint32_t __attribute__((aligned(4096))) s_soc_buf[SOC_BUFSIZE / 4];
 
 int main() {
     // ── System service initialization ─────────────────────────────────────────
@@ -41,7 +44,16 @@ int main() {
     ui_init();
 
     // ── Start beacon broadcaster ───────────────────────────────────────────────
-    beacon_start(CONSOLE_NAME);
+    // IMPROVEMENT D: generate unique console name from hardware model
+    u8 sys_model = 0;
+    if (R_SUCCEEDED(CFGU_GetSystemModel(&sys_model))) {
+        static const char* const k_models[] = {
+            "3DS", "3DS XL", "New 3DS", "2DS", "New 3DS XL", "New 2DS XL"
+        };
+        const char* mname = (sys_model <= 5) ? k_models[sys_model] : "3DS";
+        snprintf(s_console_name, sizeof(s_console_name), "ZelNeD [%s]", mname);
+    }
+    beacon_start(s_console_name);
 
     // ── Start receiver thread ─────────────────────────────────────────────────
     // Priority 0x31 (slightly lower than main), runs on APP CPU core
@@ -52,8 +64,6 @@ int main() {
                                       false);
 
     // ── Main loop (UI + input) ─────────────────────────────────────────────────
-    bool paused = false;
-
     while (aptMainLoop()) {
         hidScanInput();
         u32 keys_down = hidKeysDown();
@@ -62,13 +72,15 @@ int main() {
             break;   // Exit
         }
 
+        // FIX #6: Toggle pause on SELECT
         if (keys_down & KEY_SELECT) {
-            paused = !paused;
-            // TODO: notify receiver of pause state
+            bool next_paused = !receiver_is_paused();
+            receiver_set_paused(next_paused);
         }
 
+        // FIX #6: Clear UI log on Y
         if (keys_down & KEY_Y) {
-            // Clear log (future: call ui_log_clear())
+            ui_log_clear();
         }
 
         // Draw current frame
