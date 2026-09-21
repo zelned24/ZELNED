@@ -29,7 +29,30 @@ jobs:
           export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:$PATH
           cd 3ds
           make clean || true
-          make
+          make 2>&1 | tee /tmp/build.log
+
+      - name: Post Build Log as Commit Comment on Failure
+        if: failure()
+        run: |
+          python3 -c "
+          import os, urllib.request, json
+          token = os.environ.get('GITHUB_TOKEN')
+          repo = os.environ.get('GITHUB_REPOSITORY')
+          sha = os.environ.get('GITHUB_SHA')
+          try:
+              with open('/tmp/build.log', 'r') as f:
+                  log = f.read()[-3000:]
+          except Exception as e:
+              log = str(e)
+          body = json.dumps({'body': f'### 3DS Build Log:\n\`\`\`text\n{log}\n\`\`\`'})
+          req = urllib.request.Request(f'https://api.github.com/repos/{repo}/commits/{sha}/comments', data=body.encode('utf-8'), headers={'Authorization': f'token {token}', 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json', 'User-Agent': 'py'})
+          urllib.request.urlopen(req)
+          print('Successfully posted build log comment to commit!')
+          "
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
 
       - name: Upload 3DSX Artifact
         uses: actions/upload-artifact@v4
