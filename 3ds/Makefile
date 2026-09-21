@@ -15,27 +15,31 @@ BUILD		:=	build
 SOURCES		:=	source source/lz4
 DATA		:=	data
 INCLUDES	:=	source source/lz4
-ROMFS		:=	romfs
 
 APP_TITLE       := Zel.NeD
 APP_DESCRIPTION := Wireless High-Speed File Transfer for Nintendo 3DS
 APP_AUTHOR      := ZelNeD Team
 PRODUCT_CODE    := CTR-ZND
 UNIQUE_ID       := 0x5A4E44
+ICON            := icon.png
 
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
-CFLAGS	:= -Wall -Wextra -Wno-unused -O2 -mword-relocations \
-		-fomit-frame-pointer -ffunction-sections -fdata-sections \
-		$(ARCH) -DARM11 -D__3DS__
+CFLAGS	:=	-g -Wall -O2 -mword-relocations \
+			-fomit-frame-pointer -ffunction-sections -fdata-sections \
+			$(ARCH)
 
-CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
-ASFLAGS	:= -g $(ARCH)
-LDFLAGS	:= -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+CFLAGS	+=	$(INCLUDE) -DARM11 -D__3DS__
+
+CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
+
+ASFLAGS	:=	-g $(ARCH)
+LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+
 LIBS	:= -lcitro2d -lcitro3d -lctru -lm
 
-LIBDIRS_DEVKITPRO := libctru portlibs/3ds
+LIBDIRS	:= $(PORTLIBS) $(CTRULIB)
 
 #---------------------------------------------------------------------------------
 ifneq ($(BUILD),$(notdir $(CURDIR)))
@@ -44,7 +48,9 @@ ifneq ($(BUILD),$(notdir $(CURDIR)))
 export OUTPUT	:=	$(CURDIR)/$(TARGET)
 export TOPDIR	:=	$(CURDIR)
 
-export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
+export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
+			$(foreach dir,$(DATA),$(CURDIR)/$(dir))
+
 export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 
 CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
@@ -58,18 +64,18 @@ else
 	export LD	:=	$(CXX)
 endif
 
-export OFILES_SOURCES := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
-export OFILES_BIN     := $(addsuffix .o,$(BINFILES))
-export OFILES         := $(OFILES_BIN) $(OFILES_SOURCES)
+export OFILES_SOURCES 	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+export OFILES_BIN	:=	$(addsuffix .o,$(BINFILES))
+export OFILES := $(OFILES_BIN) $(OFILES_SOURCES)
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-			$(foreach dir,$(LIBDIRS_DEVKITPRO),-I$(DEVKITPRO)/$(dir)/include) \
+			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
 			-I$(CURDIR)/$(BUILD)
 
-export LIBPATHS	:=	$(foreach dir,$(LIBDIRS_DEVKITPRO),-L$(DEVKITPRO)/$(dir)/lib)
+export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
-export _3DSXDEPS := $(OUTPUT).smdh
-export _3DSXFLAGS := --smdh=$(OUTPUT).smdh
+export _3DSXDEPS	:=	$(OUTPUT).smdh
+export _3DSXFLAGS	:=	--smdh=$(CURDIR)/$(TARGET).smdh
 
 .PHONY: all clean
 
