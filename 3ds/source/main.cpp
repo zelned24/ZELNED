@@ -14,6 +14,7 @@
 #include "net_beacon.hpp"
 #include "net_receiver.hpp"
 #include "fs_writer.hpp"
+#include "protocol.hpp"
 
 // Fallback console name
 static char s_console_name[32] = "Nintendo 3DS (ZelNeD)";

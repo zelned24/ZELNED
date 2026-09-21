@@ -13,17 +13,21 @@ jobs:
     container:
       image: devkitpro/devkitarm:latest
 
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITARM: /opt/devkitpro/devkitARM
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install 3DS packages and libraries
+      - name: Install 3DS packages and tools
         run: |
-          dkp-pacman -Syu --noconfirm
-          dkp-pacman -S --noconfirm 3ds-dev 3ds-citro2d 3ds-citro3d 3ds-libctru
+          dkp-pacman -Sy --noconfirm --needed 3ds-dev
 
       - name: Build ZelNeD.3dsx
         run: |
+          export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:$PATH
           cd 3ds
           make
 
