@@ -29,19 +29,7 @@ jobs:
           export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:$PATH
           cd 3ds
           make clean || true
-          make > /tmp/build.log 2>&1 || true
-          echo "## Build Log Output" >> $GITHUB_STEP_SUMMARY
-          echo '```text' >> $GITHUB_STEP_SUMMARY
-          cat /tmp/build.log >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "## Directory Listing" >> $GITHUB_STEP_SUMMARY
-          echo '```text' >> $GITHUB_STEP_SUMMARY
-          ls -la >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          if [ ! -f "ZelNeD.3dsx" ] && [ ! -f "build/ZelNeD.3dsx" ]; then
-            cat /tmp/build.log
-            exit 1
-          fi
+          make
 
       - name: Upload 3DSX Artifact
         uses: actions/upload-artifact@v4
