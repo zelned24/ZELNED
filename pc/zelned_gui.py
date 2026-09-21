@@ -51,11 +51,17 @@ C_TEXT    = "#e0e0e0"
 C_DIM     = "#777788"
 
 
-class ZelNedApp(ctk.CTk if not _DND_AVAILABLE else type("_Base", (TkinterDnD.Tk, ctk.CTk), {})):
+class ZelNedApp(ctk.CTk):
     """Main application window."""
 
     def __init__(self):
         super().__init__()
+
+        if _DND_AVAILABLE:
+            try:
+                TkinterDnD._require(self)
+            except Exception:
+                pass
 
         self.title(APP_TITLE)
         self.geometry("720x680")

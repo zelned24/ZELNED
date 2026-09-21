@@ -86,7 +86,7 @@ static bool receive_file(int sock, const ZelNedFileHeader& fhdr,
     uint32_t start_chunk   = (resume_offset > 0) ? (resume_offset / CHUNK_SIZE_RAW) : 0;
 
     FsWriter writer;
-    if (!writer.open(remote_path, resume_offset)) {
+    if (!writer.open(remote_path, fhdr.uncompressed_size, resume_offset)) {
         send_byte(sock, HS_ERROR);
         return false;
     }

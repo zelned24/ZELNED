@@ -23,7 +23,7 @@ bool fs_mkdir_recursive(const std::string& rel_path);
 
 // File write session (atomic: write to .tmp, then rename)
 struct FsWriter {
-    bool open(const std::string& rel_path, uint64_t resume_offset = 0);
+    bool open(const std::string& rel_path, uint64_t total_size = 0, uint64_t resume_offset = 0);
     bool write(const void* data, size_t len);
     bool commit();       // Rename .tmp → final name
     void abort();        // Delete .tmp
