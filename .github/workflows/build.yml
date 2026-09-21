@@ -21,10 +21,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install 3DS packages and tools
-        run: |
-          dkp-pacman -Sy --noconfirm --needed 3ds-dev
-
       - name: Build ZelNeD.3dsx
         run: |
           export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:$PATH
