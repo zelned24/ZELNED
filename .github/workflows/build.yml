@@ -26,17 +26,21 @@ jobs:
           export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:$PATH
           cd 3ds
           make 2>&1 | tee /tmp/build.log
+          echo "=== Top dir listing ==="
+          ls -la
+          echo "=== Build dir listing ==="
+          ls -la build/ || true
 
       - name: Upload 3DSX Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ZelNeD-3dsx
           path: |
-            3ds/ZelNeD.3dsx
-            3ds/ZelNeD.smdh
+            **/*.3dsx
+            **/*.smdh
 
-      - name: Upload Build Log on failure
-        if: failure()
+      - name: Upload Build Log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
