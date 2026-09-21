@@ -1,0 +1,36 @@
+name: Build Nintendo 3DS Homebrew (.3dsx)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-3dsx:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install 3DS packages and libraries
+        run: |
+          dkp-pacman -Syu --noconfirm
+          dkp-pacman -S --noconfirm 3ds-dev 3ds-citro2d 3ds-citro3d 3ds-libctru
+
+      - name: Build ZelNeD.3dsx
+        run: |
+          cd 3ds
+          make
+
+      - name: Upload 3DSX Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZelNeD-3dsx
+          path: |
+            3ds/ZelNeD.3dsx
+            3ds/ZelNeD.smdh
