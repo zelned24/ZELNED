@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Distribution / packaging
+.eggs/
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# 3DS build output
+3ds/build/
+3ds/*.3dsx
+3ds/*.elf
+3ds/*.map
+3ds/*.cia
+3ds/*.smdh
+
+# Resume state (local user data)
+.zelned/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
