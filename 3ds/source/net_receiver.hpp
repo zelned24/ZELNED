@@ -1,8 +1,8 @@
 /**
- * Zel.NeD — TCP Receiver (3DS)
+ * Zel.NeD - TCP Receiver (3DS)
  * ==============================
  * Listens on TCP port 9503.
- * Receives ZELNED sessions: handshake → files → chunks → ACK/NACK.
+ * Receives ZELNED sessions: handshake -> files -> chunks -> ACK/NACK.
  */
 #pragma once
 #include <stdint.h>
@@ -21,12 +21,19 @@ struct ReceiverStats {
     int      queue_total;
     bool     connected;
     bool     paused;
+    // Telemetry fields (populated when FLAG_TELEMETRY is set in the session)
+    bool     telemetry_active;
+    uint16_t telem_net_us;    // EMA of socket recv time per chunk (us)
+    uint16_t telem_cpu_us;    // EMA of CRC32 + LZ4 decompress time (us)
+    uint16_t telem_sd_us;     // EMA of SD write time per chunk (us)
+    uint8_t  wifi_bars;       // Wi-Fi signal strength 0-3
+    uint8_t  cpu_load_pct;    // Estimated CPU load 0-100%
 };
 
 // Initialize receiver internal state and locks (must call from main thread before loop)
 void receiver_init();
 
-// Start the receiver (blocking — call from a dedicated thread)
+// Start the receiver (blocking - call from a dedicated thread)
 void receiver_run();
 
 // Get a snapshot of current stats (thread-safe)

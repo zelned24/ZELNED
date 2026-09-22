@@ -25,13 +25,18 @@ except ImportError:
 
 from protocol import (
     connect_to_3ds, send_session_header, send_file,
-    send_directory_entry, ThrottleController, TCP_PORT, ProtocolError
+    send_directory_entry,
+    ThrottleController, FLAG_TELEMETRY, TCP_PORT, ProtocolError
 )
+from analyzer import BottleneckAnalyzer, Bottleneck
+from auto_tuner import AutoTuner, TransferParams
+from benchmark import BenchmarkRunner
 from discovery import DiscoveryListener
 from queue_manager import QueueManager, ItemStatus
 from resume_state import ResumeState
 
 CONFIG_PATH = Path.home() / ".zelned_config.json"
+
 
 def _load_config() -> dict:
     try:
@@ -41,11 +46,13 @@ def _load_config() -> dict:
         pass
     return {}
 
+
 def _save_config(cfg: dict):
     try:
         CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     except Exception:
         pass
+
 
 # ── App Theme ─────────────────────────────────────────────────────────────────
 ctk.set_appearance_mode("dark")
@@ -81,8 +88,8 @@ class ZelNedApp(ctk.CTk):
                 pass
 
         self.title(APP_TITLE)
-        self.geometry("720x680")
-        self.minsize(640, 560)
+        self.geometry("780x720")
+        self.minsize(680, 580)
         self.configure(fg_color=C_BG)
 
         # Config & State
@@ -96,6 +103,12 @@ class ZelNedApp(ctk.CTk):
         self._connected_ip: Optional[str] = None
         self._stats_bps: float  = 0.0
         self._stats_ratio: float = 1.0
+
+        # Auto-tuner and telemetry
+        self._tuner    = AutoTuner()
+        self._analyzer = BottleneckAnalyzer(window=50)
+        self._use_telemetry: bool = True
+        self._bench_result = None
 
         self._build_ui()
 
@@ -155,9 +168,17 @@ class ZelNedApp(ctk.CTk):
         self._combo_throttle.set("Unlimited")
         self._combo_throttle.grid(row=2, column=1, padx=4, pady=(0, 8), sticky="w")
 
+        # Tabview: Transfer & Diagnostics
+        self._tabview = ctk.CTkTabview(self, corner_radius=12)
+        self._tabview.pack(fill="both", expand=True, padx=12, pady=4)
+
+        tab_transfer = self._tabview.add("Transfer")
+        self._diag_frame = self._tabview.add("Diagnostics")
+
+        # ── Tab 1: Transfer ───────────────────────────────────────────────────
         # Drop zone
-        drop = ctk.CTkFrame(self, fg_color=C_ACCENT, corner_radius=12)
-        drop.pack(fill="x", padx=12, pady=4)
+        drop = ctk.CTkFrame(tab_transfer, fg_color=C_ACCENT, corner_radius=12)
+        drop.pack(fill="x", padx=6, pady=4)
 
         self._lbl_drop = ctk.CTkLabel(
             drop,
@@ -165,10 +186,10 @@ class ZelNedApp(ctk.CTk):
             font=ctk.CTkFont("Segoe UI", 14),
             text_color=C_BLUE,
         )
-        self._lbl_drop.pack(pady=14)
+        self._lbl_drop.pack(pady=12)
 
         btn_row = ctk.CTkFrame(drop, fg_color="transparent")
-        btn_row.pack(pady=(0, 12))
+        btn_row.pack(pady=(0, 10))
         ctk.CTkButton(btn_row, text="+ Add File", width=130,
                       command=self._browse_files).pack(side="left", padx=6)
         ctk.CTkButton(btn_row, text="+ Add Folder", width=130,
@@ -181,8 +202,8 @@ class ZelNedApp(ctk.CTk):
             drop.dnd_bind("<<Drop>>", self._on_drop)
 
         # Queue list
-        queue_frame = ctk.CTkFrame(self, fg_color=C_PANEL, corner_radius=12)
-        queue_frame.pack(fill="both", expand=True, padx=12, pady=4)
+        queue_frame = ctk.CTkFrame(tab_transfer, fg_color=C_PANEL, corner_radius=12)
+        queue_frame.pack(fill="both", expand=True, padx=6, pady=4)
 
         q_header = ctk.CTkFrame(queue_frame, fg_color="transparent")
         q_header.pack(fill="x", padx=8, pady=(8, 4))
@@ -207,8 +228,8 @@ class ZelNedApp(ctk.CTk):
         self._selected_idx: Optional[int] = None
 
         # Progress / Stats bar
-        prog_frame = ctk.CTkFrame(self, fg_color=C_PANEL, corner_radius=12)
-        prog_frame.pack(fill="x", padx=12, pady=(4, 4))
+        prog_frame = ctk.CTkFrame(tab_transfer, fg_color=C_PANEL, corner_radius=12)
+        prog_frame.pack(fill="x", padx=6, pady=(4, 4))
 
         self._progressbar = ctk.CTkProgressBar(prog_frame, height=14, corner_radius=6)
         self._progressbar.set(0)
@@ -227,8 +248,8 @@ class ZelNedApp(ctk.CTk):
         self._lbl_eta.pack(side="right")
 
         # Action buttons
-        act_frame = ctk.CTkFrame(self, fg_color="transparent")
-        act_frame.pack(fill="x", padx=12, pady=(0, 12))
+        act_frame = ctk.CTkFrame(tab_transfer, fg_color="transparent")
+        act_frame.pack(fill="x", padx=6, pady=(4, 8))
 
         self._btn_send = ctk.CTkButton(act_frame, text="⚡ Send Queue",
                                        font=ctk.CTkFont("Segoe UI", 14, "bold"),
@@ -248,6 +269,151 @@ class ZelNedApp(ctk.CTk):
 
         ctk.CTkButton(act_frame, text="Discover 3DS",
                       height=44, fg_color=C_ACCENT, command=self._refresh_devices).pack(side="right", padx=4)
+
+        # ── Tab 2: Diagnostics ────────────────────────────────────────────────
+        self._build_diagnostics_panel()
+
+    # ── Diagnostics Panel ─────────────────────────────────────────────────────
+
+    def _build_diagnostics_panel(self):
+        diag = ctk.CTkFrame(self._diag_frame, fg_color="transparent")
+        diag.pack(fill="both", expand=True, padx=8, pady=4)
+
+        # Bottleneck card
+        bn_row = ctk.CTkFrame(diag, fg_color="#1e2a3a", corner_radius=12)
+        bn_row.pack(fill="x", pady=(0, 6))
+        ctk.CTkLabel(bn_row, text="Dominant Bottleneck", font=ctk.CTkFont("Segoe UI", 11),
+                     text_color="#888").pack(anchor="w", padx=12, pady=(6, 2))
+        self._lbl_bottleneck = ctk.CTkLabel(bn_row, text="-- No data --",
+                                             font=ctk.CTkFont("Segoe UI", 16, "bold"),
+                                             text_color="#aaaaaa")
+        self._lbl_bottleneck.pack(anchor="w", padx=12, pady=(0, 2))
+        self._lbl_bn_rec = ctk.CTkLabel(bn_row, text="Waiting for transfer data...", wraplength=620, justify="left",
+                                         font=ctk.CTkFont("Segoe UI", 11),
+                                         text_color="#90a0b0")
+        self._lbl_bn_rec.pack(anchor="w", padx=12, pady=(0, 6))
+
+        # Time breakdown
+        bars_frame = ctk.CTkFrame(diag, fg_color="#1e2a3a", corner_radius=12)
+        bars_frame.pack(fill="x", pady=(0, 6))
+        ctk.CTkLabel(bars_frame, text="Time Breakdown per Chunk",
+                     font=ctk.CTkFont("Segoe UI", 11), text_color="#888").pack(anchor="w", padx=12, pady=(6, 2))
+
+        def make_bar(parent, label, color):
+            row = ctk.CTkFrame(parent, fg_color="transparent")
+            row.pack(fill="x", padx=12, pady=1)
+            ctk.CTkLabel(row, text=label, width=90, anchor="w",
+                         font=ctk.CTkFont("Segoe UI", 11), text_color="#ccc").pack(side="left")
+            bar = ctk.CTkProgressBar(row, height=12, corner_radius=5, progress_color=color)
+            bar.set(0)
+            bar.pack(side="left", fill="x", expand=True, padx=(4, 8))
+            lbl = ctk.CTkLabel(row, text="0 µs", width=80, anchor="e",
+                               font=ctk.CTkFont("Segoe UI", 11), text_color="#aaa")
+            lbl.pack(side="left")
+            return bar, lbl
+
+        self._bar_net, self._lbl_net_us = make_bar(bars_frame, "Wi-Fi recv", "#e67e22")
+        self._bar_cpu, self._lbl_cpu_us = make_bar(bars_frame, "ARM11 CPU",  "#c0392b")
+        self._bar_sd,  self._lbl_sd_us  = make_bar(bars_frame, "SD write",   "#8e44ad")
+
+        # Live status row
+        live_frame = ctk.CTkFrame(diag, fg_color="#1e2a3a", corner_radius=12)
+        live_frame.pack(fill="x", pady=(0, 6))
+        live_row = ctk.CTkFrame(live_frame, fg_color="transparent")
+        live_row.pack(fill="x", padx=12, pady=6)
+        self._lbl_wifi_bars = ctk.CTkLabel(live_row, text="Wi-Fi: --/3",
+                                            font=ctk.CTkFont("Segoe UI", 11), text_color="#ccc")
+        self._lbl_wifi_bars.pack(side="left", padx=(0, 16))
+        self._lbl_cpu_load = ctk.CTkLabel(live_row, text="CPU load: --%",
+                                           font=ctk.CTkFont("Segoe UI", 11), text_color="#ccc")
+        self._lbl_cpu_load.pack(side="left", padx=(0, 16))
+        self._lbl_active_params = ctk.CTkLabel(live_row, text="Params: default",
+                                               font=ctk.CTkFont("Segoe UI", 11), text_color="#7090b0")
+        self._lbl_active_params.pack(side="left")
+
+        # Benchmark controls
+        bench_frame = ctk.CTkFrame(diag, fg_color="transparent")
+        bench_frame.pack(fill="x", pady=(0, 4))
+        ctk.CTkButton(bench_frame, text="Run Speed Benchmark",
+                      font=ctk.CTkFont("Segoe UI", 12, "bold"), height=36,
+                      fg_color="#0277bd", hover_color="#01579b",
+                      command=self._run_benchmark).pack(side="left", padx=(0, 8))
+        self._lbl_bench_result = ctk.CTkLabel(bench_frame, text="",
+                                              font=ctk.CTkFont("Segoe UI", 11),
+                                              text_color="#90a0b0", wraplength=460, justify="left")
+        self._lbl_bench_result.pack(side="left")
+
+        # Tuner log
+        ctk.CTkLabel(diag, text="Auto-Tuner Decision Log", font=ctk.CTkFont("Segoe UI", 11),
+                     text_color="#888").pack(anchor="w", pady=(4, 2))
+        self._tuner_log = ctk.CTkTextbox(diag, height=90, fg_color="#111a22",
+                                          font=ctk.CTkFont("Consolas", 10), text_color="#7fba8a")
+        self._tuner_log.pack(fill="both", expand=True)
+        self._tuner_log.configure(state="disabled")
+
+    def _update_diagnostics(self):
+        if not hasattr(self, "_lbl_bottleneck"):
+            return
+        result = self._analyzer.classify()
+        bn = result.bottleneck
+        self._lbl_bottleneck.configure(text=bn.label(), text_color=bn.color())
+        self._lbl_bn_rec.configure(
+            text=result.recommendation() if result.sample_count >= 10 else "Waiting for transfer data..."
+        )
+        total = result.avg_net_us + result.avg_cpu_us + result.avg_sd_us
+        if total > 0:
+            self._bar_net.set(result.avg_net_us / total)
+            self._bar_cpu.set(result.avg_cpu_us / total)
+            self._bar_sd.set(result.avg_sd_us  / total)
+        self._lbl_net_us.configure(text=f"{result.avg_net_us:.0f} µs")
+        self._lbl_cpu_us.configure(text=f"{result.avg_cpu_us:.0f} µs")
+        self._lbl_sd_us.configure(text=f"{result.avg_sd_us:.0f} µs")
+        self._lbl_wifi_bars.configure(text=f"Wi-Fi: {result.wifi_bars:.1f}/3")
+        samples = self._analyzer._samples
+        avg_cpu_pct = int(sum(s.cpu_load_pct for s in samples) / len(samples)) if samples else 0
+        self._lbl_cpu_load.configure(text=f"CPU load: {avg_cpu_pct}%")
+        params = self._tuner.get_params()
+        lz = "ON" if params.use_lz4   else "OFF"
+        cr = "ON" if params.use_crc32 else "OFF"
+        self._lbl_active_params.configure(
+            text=f"chunk={params.chunk_size//1024}KB  window={params.window_size}  LZ4={lz}  CRC32={cr}"
+        )
+        history = self._tuner.get_history()
+        if history:
+            self._tuner_log.configure(state="normal")
+            self._tuner_log.delete("1.0", "end")
+            self._tuner_log.insert("end", "\n".join(history[-20:]))
+            self._tuner_log.configure(state="disabled")
+
+    def _run_benchmark(self):
+        ip = self._get_ip()
+        if not ip:
+            messagebox.showwarning("No IP", "Enter the 3DS IP address first.")
+            return
+        if self._transfer_thread and self._transfer_thread.is_alive():
+            messagebox.showinfo("Busy", "A transfer is already in progress.")
+            return
+        self._lbl_bench_result.configure(text="Running benchmark...")
+
+        def _bench_worker():
+            try:
+                runner = BenchmarkRunner(ip=ip)
+                result = runner.run(
+                    progress_cb=lambda pct, msg: self.after(0, lambda m=msg: self._lbl_bench_result.configure(text=m)),
+                    use_telemetry=True,
+                )
+                self._bench_result = result
+                summary = (
+                    f"Wi-Fi only: {result.net_mbps:.2f} MB/s  |  "
+                    f"Wi-Fi+SD: {result.full_mbps:.2f} MB/s  |  "
+                    f"SD est.: {result.sd_mbps:.2f} MB/s"
+                )
+                self.after(0, lambda s=summary: self._lbl_bench_result.configure(text=s))
+            except Exception as e:
+                err = str(e)
+                self.after(0, lambda: self._lbl_bench_result.configure(text=f"Error: {err}"))
+
+        threading.Thread(target=_bench_worker, daemon=True).start()
 
     # ── Device Discovery ──────────────────────────────────────────────────────
 
@@ -343,6 +509,7 @@ class ZelNedApp(ctk.CTk):
             ctk.CTkLabel(row, text=item.display_name,
                          font=ctk.CTkFont("Segoe UI", 12),
                          text_color=C_TEXT, anchor="w").pack(side="left", fill="x", expand=True)
+
             ctk.CTkLabel(row, text=item.size_str,
                          font=ctk.CTkFont("Segoe UI", 11),
                          text_color=C_DIM, width=80).pack(side="right", padx=8)
@@ -435,7 +602,8 @@ class ZelNedApp(ctk.CTk):
         total_files = sum(1 for i in items if not i.is_dir)
 
         try:
-            send_session_header(sock, throttle_kbps, total_files, resume=True)
+            extra_flags = FLAG_TELEMETRY if self._use_telemetry else 0
+            send_session_header(sock, throttle_kbps, total_files, resume=True, extra_flags=extra_flags)
         except ProtocolError as e:
             self.after(0, lambda: self._on_transfer_error(str(e)))
             sock.close()
@@ -483,8 +651,10 @@ class ZelNedApp(ctk.CTk):
                     time.sleep(0.1)
 
             try:
+                self._tuner.reset_file()
                 send_file(sock, item.local_path, item.remote_path, throttle,
-                          resume_offset=resume_offset, progress_cb=_cb)
+                          resume_offset=resume_offset, progress_cb=_cb,
+                          use_telemetry=self._use_telemetry, tuner=self._tuner)
                 self._queue.mark_done(item)
                 rs.clear()
             except (ProtocolError, ConnectionError, OSError) as e:
@@ -534,10 +704,11 @@ class ZelNedApp(ctk.CTk):
     # ── UI polling ─────────────────────────────────────────────────────────────
 
     def _poll_ui(self):
-        """Refresh UI at ~10 fps while a transfer is running."""
+        """Refresh UI and diagnostics at ~4 fps."""
         if self._transfer_thread and self._transfer_thread.is_alive():
             self._refresh_queue_list()
-        self.after(100, self._poll_ui)
+        self._update_diagnostics()
+        self.after(250, self._poll_ui)
 
     def on_closing(self):
         self._cancel_flag.set()
