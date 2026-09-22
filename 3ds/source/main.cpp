@@ -40,6 +40,7 @@ int main() {
     cfguInit();
     ptmuInit();
     fs_init();
+    amInit();
 
     // 3. Inicializar red (soc:u) asignando memoria alineada en el HEAP
     printf("[*] Asignando memoria de red (1 MB)...\n");
@@ -163,6 +164,7 @@ int main() {
         free(soc_buf);
     }
 
+    amExit();
     ptmuExit();
     cfguExit();
 

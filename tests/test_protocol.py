@@ -17,7 +17,8 @@ from protocol import (
     FMT_ACK, ACK_SIZE,
     FMT_TELEM_ACK, TELEM_ACK_SIZE,
     ACK_OK, ACK_NACK, ACK_ERROR_FS, ACK_WITH_TELEMETRY,
-    FLAG_LZ4, FLAG_CRC32, FLAG_RESUME, FLAG_TELEMETRY, FLAG_BENCHMARK_NET,
+    FLAG_LZ4, FLAG_CRC32, FLAG_RESUME, FLAG_TELEMETRY, FLAG_BENCHMARK_NET, FLAG_INSTALL_CIA,
+    TYPE_FILE, TYPE_DIRECTORY, TYPE_CIA_INSTALL,
     ThrottleController
 )
 from analyzer import BottleneckAnalyzer, Bottleneck
@@ -86,7 +87,24 @@ class TestZelNedProtocol(unittest.TestCase):
     def test_protocol_flag_constants(self):
         self.assertEqual(FLAG_TELEMETRY, 0x08)
         self.assertEqual(FLAG_BENCHMARK_NET, 0x10)
+        self.assertEqual(FLAG_INSTALL_CIA, 0x20)
         self.assertEqual(ACK_WITH_TELEMETRY, 4)
+        self.assertEqual(TYPE_FILE, 0)
+        self.assertEqual(TYPE_DIRECTORY, 1)
+        self.assertEqual(TYPE_CIA_INSTALL, 2)
+
+    def test_cia_install_headers(self):
+        # Session header with FLAG_INSTALL_CIA
+        packed_session = struct.pack(FMT_SESSION, MAGIC, VERSION, FLAG_INSTALL_CIA | FLAG_TELEMETRY, 0, 1)
+        magic, ver, flags, throttle, count = struct.unpack(FMT_SESSION, packed_session)
+        self.assertTrue(flags & FLAG_INSTALL_CIA)
+
+        # File header with TYPE_CIA_INSTALL
+        packed_file = struct.pack(FMT_FILE, TYPE_CIA_INSTALL, 50000000, 0, 763, 14)
+        ftype, sz, off, chunks, plen = struct.unpack(FMT_FILE, packed_file)
+        self.assertEqual(ftype, TYPE_CIA_INSTALL)
+        self.assertEqual(sz, 50000000)
+
 
     def test_adaptive_compression_logic(self):
         # Test compressible payload

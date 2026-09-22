@@ -26,7 +26,7 @@ except ImportError:
 from protocol import (
     connect_to_3ds, send_session_header, send_file,
     send_directory_entry,
-    ThrottleController, FLAG_TELEMETRY, TCP_PORT, ProtocolError
+    ThrottleController, FLAG_TELEMETRY, FLAG_INSTALL_CIA, TCP_PORT, ProtocolError
 )
 from analyzer import BottleneckAnalyzer, Bottleneck
 from auto_tuner import AutoTuner, TransferParams
@@ -189,11 +189,22 @@ class ZelNedApp(ctk.CTk):
         self._lbl_drop.pack(pady=12)
 
         btn_row = ctk.CTkFrame(drop, fg_color="transparent")
-        btn_row.pack(pady=(0, 10))
+        btn_row.pack(pady=(0, 6))
         ctk.CTkButton(btn_row, text="+ Add File", width=130,
                       command=self._browse_files).pack(side="left", padx=6)
         ctk.CTkButton(btn_row, text="+ Add Folder", width=130,
                       command=self._browse_folder).pack(side="left", padx=6)
+
+        self._chk_cia_install = ctk.CTkCheckBox(
+            drop,
+            text="⚡ Direct CIA Install (Stream directly to HOME Menu — no double SD space needed)",
+            font=ctk.CTkFont("Segoe UI", 11, "bold"),
+            text_color="#81d4fa",
+            fg_color="#0277bd",
+            hover_color="#01579b"
+        )
+        self._chk_cia_install.select()
+        self._chk_cia_install.pack(pady=(0, 10))
 
         if _DND_AVAILABLE:
             self._lbl_drop.drop_target_register(DND_FILES)
@@ -501,7 +512,13 @@ class ZelNedApp(ctk.CTk):
                 ItemStatus.CANCELLED: ("⊘", C_DIM),
                 ItemStatus.PAUSED:    ("⏸", C_YELLOW),
             }
-            icon, color = icons.get(item.status, ("?", C_DIM))
+            is_cia = hasattr(self, "_chk_cia_install") and bool(self._chk_cia_install.get()) and item.local_path.suffix.lower() == ".cia"
+            if item.status == ItemStatus.PENDING and is_cia:
+                icon, color = ("⚡", C_BLUE)
+            elif item.status == ItemStatus.SENDING and is_cia:
+                icon, color = ("⚡", C_YELLOW)
+            else:
+                icon, color = icons.get(item.status, ("?", C_DIM))
             ctk.CTkLabel(row, text=icon, text_color=color, width=24,
                          font=ctk.CTkFont("Segoe UI", 13, "bold")).pack(side="left", padx=(8, 4))
 
@@ -601,8 +618,16 @@ class ZelNedApp(ctk.CTk):
         items = [i for i in self._queue.snapshot() if i.status == ItemStatus.PENDING]
         total_files = sum(1 for i in items if not i.is_dir)
 
+        is_cia_mode = hasattr(self, "_chk_cia_install") and bool(self._chk_cia_install.get())
+        has_cia_files = any(i.local_path.suffix.lower() == ".cia" for i in items if not i.is_dir)
+        use_cia_session = is_cia_mode and has_cia_files
+
         try:
-            extra_flags = FLAG_TELEMETRY if self._use_telemetry else 0
+            extra_flags = 0
+            if self._use_telemetry:
+                extra_flags |= FLAG_TELEMETRY
+            if use_cia_session:
+                extra_flags |= FLAG_INSTALL_CIA
             send_session_header(sock, throttle_kbps, total_files, resume=True, extra_flags=extra_flags)
         except ProtocolError as e:
             self.after(0, lambda: self._on_transfer_error(str(e)))
@@ -610,7 +635,7 @@ class ZelNedApp(ctk.CTk):
             return
 
         self.after(0, lambda: self._lbl_status.configure(
-            text=f"● Transferring to {ip}", text_color=C_GREEN))
+            text=f"● Connected to {ip}", text_color=C_GREEN))
 
         _transfer_start = time.monotonic()
         _total_bytes = sum(i.file_size for i in items if not i.is_dir)
@@ -635,6 +660,14 @@ class ZelNedApp(ctk.CTk):
             rs = ResumeState(ip, item.remote_path)
             resume_offset = rs.load()
 
+            is_item_cia = is_cia_mode and (item.local_path.suffix.lower() == ".cia")
+            if is_item_cia:
+                self.after(0, lambda n=item.display_name: self._lbl_status.configure(
+                    text=f"⚡ Installing {n} directly to HOME Menu...", text_color=C_BLUE))
+            else:
+                self.after(0, lambda n=item.display_name: self._lbl_status.configure(
+                    text=f"● Sending {n}...", text_color=C_GREEN))
+
             def _cb(sent, total, eff_mbps, _item=item, _rs=rs):
                 nonlocal _bytes_sent_total
                 self._queue.update_progress(_item, sent)
@@ -654,7 +687,8 @@ class ZelNedApp(ctk.CTk):
                 self._tuner.reset_file()
                 send_file(sock, item.local_path, item.remote_path, throttle,
                           resume_offset=resume_offset, progress_cb=_cb,
-                          use_telemetry=self._use_telemetry, tuner=self._tuner)
+                          use_telemetry=self._use_telemetry, tuner=self._tuner,
+                          is_cia_install=is_item_cia)
                 self._queue.mark_done(item)
                 rs.clear()
             except (ProtocolError, ConnectionError, OSError) as e:
@@ -676,7 +710,11 @@ class ZelNedApp(ctk.CTk):
         self._refresh_queue_list()
 
     def _on_transfer_complete(self):
-        self._lbl_status.configure(text="● Done", text_color=C_GREEN)
+        is_cia_mode = hasattr(self, "_chk_cia_install") and bool(self._chk_cia_install.get())
+        if is_cia_mode:
+            self._lbl_status.configure(text="● Done — Installed to 3DS HOME Menu!", text_color=C_GREEN)
+        else:
+            self._lbl_status.configure(text="● Done", text_color=C_GREEN)
         self._btn_send.configure(state="normal")
         self._progressbar.set(1.0)
         self._refresh_queue_list()

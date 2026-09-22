@@ -30,6 +30,12 @@ FLAG_CRC32         = 0x02
 FLAG_RESUME        = 0x04
 FLAG_TELEMETRY     = 0x08  # Request per-chunk telemetry in ACKs
 FLAG_BENCHMARK_NET = 0x10  # Benchmark mode: 3DS discards data to RAM
+FLAG_INSTALL_CIA    = 0x20  # Direct CIA install: 3DS streams to AM service
+
+# Item types
+TYPE_FILE        = 0
+TYPE_DIRECTORY   = 1
+TYPE_CIA_INSTALL = 2
 
 # Chunk ACK status codes
 ACK_OK             = 0
@@ -182,20 +188,22 @@ def send_file(
     use_telemetry: bool = False,
     tuner=None,
     window_size: int = 6,
+    is_cia_install: bool = False,
 ) -> bool:
     """
     Send a single file over an established ZELNED session.
 
     Args:
-        sock:          Connected TCP socket to the 3DS.
-        local_path:    Path to the file on the PC.
-        remote_path:   Relative destination path on sdmc:/ (e.g. '3ds/game.cia').
-        throttle:      ThrottleController instance (kbps=0 for unlimited).
-        resume_offset: Byte offset to resume from (0 = start from beginning).
-        progress_cb:   Called with (bytes_sent, total_bytes, effective_mbps) per chunk.
-        use_telemetry: If True, reads extended 15-byte ACKs with timing data.
-        tuner:         Optional AutoTuner instance to feed telemetry into.
-        window_size:   Sliding-window size (chunks in flight). Tuner may override.
+        sock:           Connected TCP socket to the 3DS.
+        local_path:     Path to the file on the PC.
+        remote_path:    Relative destination path on sdmc:/ (e.g. '3ds/game.cia').
+        throttle:       ThrottleController instance (kbps=0 for unlimited).
+        resume_offset:  Byte offset to resume from (0 = start from beginning).
+        progress_cb:    Called with (bytes_sent, total_bytes, effective_mbps) per chunk.
+        use_telemetry:  If True, reads extended 15-byte ACKs with timing data.
+        tuner:          Optional AutoTuner instance to feed telemetry into.
+        window_size:    Sliding-window size (chunks in flight). Tuner may override.
+        is_cia_install: If True, marks chunk stream for direct CIA install.
 
     Returns:
         True on success, False on unrecoverable error.
@@ -207,9 +215,10 @@ def send_file(
     total_chunks = (total_bytes_to_send + CHUNK_SIZE_RAW - 1) // CHUNK_SIZE_RAW
 
     # Send file header
+    ftype = TYPE_CIA_INSTALL if is_cia_install else TYPE_FILE
     file_hdr = struct.pack(
         FMT_FILE,
-        0,              # type: regular file
+        ftype,
         file_size,
         resume_offset,
         total_chunks,

@@ -19,10 +19,12 @@ static const char ZELNED_MAGIC[6] = {'Z','E','L','N','E','D'};
 #define FLAG_RESUME         0x04
 #define FLAG_TELEMETRY      0x08
 #define FLAG_BENCHMARK_NET  0x10
+#define FLAG_INSTALL_CIA    0x20
 
 // ── Item types ────────────────────────────────────────────────────────────────
-#define TYPE_FILE      0
-#define TYPE_DIRECTORY 1
+#define TYPE_FILE        0
+#define TYPE_DIRECTORY   1
+#define TYPE_CIA_INSTALL 2
 
 // ── ACK status codes ──────────────────────────────────────────────────────────
 #define ACK_OK             0

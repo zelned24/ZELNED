@@ -344,6 +344,118 @@ static bool receive_benchmark(int sock, const ZelNedFileHeader& fhdr,
     return true;
 }
 
+// ── Direct CIA Stream Installer (writes to AM service handle) ────────────────
+static bool receive_cia_install(int sock, const ZelNedFileHeader& fhdr,
+                                const std::string& remote_path,
+                                bool use_crc32, bool use_telemetry) {
+    std::string filename = remote_path;
+    size_t last_slash = filename.find_last_of("/\\");
+    if (last_slash != std::string::npos) filename = filename.substr(last_slash + 1);
+
+    LightLock_Lock(&s_stats_lock);
+    snprintf(s_stats.current_file, sizeof(s_stats.current_file), "[INSTALL] %s", filename.c_str());
+    s_stats.total_chunks  = fhdr.total_chunks;
+    s_stats.current_chunk = 0;
+    LightLock_Unlock(&s_stats_lock);
+
+    telemetry_reset();
+
+    Handle cia_handle = 0;
+    Result res = AM_StartCiaInstall(MEDIATYPE_SD, &cia_handle);
+    if (R_FAILED(res)) {
+        send_byte(sock, HS_ERROR);
+        return false;
+    }
+    send_byte(sock, HS_OK);
+
+    uint64_t t_start = osGetTime();
+    uint32_t ci = 0;
+    uint32_t nack_retries = 0;
+    u64 current_offset = 0;
+    bool install_ok = true;
+
+    while (ci < fhdr.total_chunks && !s_stop) {
+        uint64_t t_net_start = telemetry_tick();
+        ZelNedChunkHeader chdr;
+        if (!recv_exact(sock, &chdr, sizeof(chdr))) { install_ok = false; break; }
+        if (chdr.compressed_size == 0 || chdr.compressed_size > (uint32_t)DECOMP_BUF_SZ) {
+            install_ok = false; break;
+        }
+        if (!recv_exact(sock, s_chunk_buf, chdr.compressed_size)) { install_ok = false; break; }
+        uint64_t t_net_end = telemetry_tick();
+
+        uint64_t t_cpu_start = telemetry_tick();
+        if (use_crc32) {
+            uint32_t computed = zelned_crc32(s_chunk_buf, chdr.compressed_size);
+            if (computed != chdr.crc32) {
+                send_ack(sock, chdr.chunk_index, ACK_NACK, false);
+                if (++nack_retries >= 5) { install_ok = false; break; }
+                continue;
+            }
+        }
+        nack_retries = 0;
+
+        const uint8_t* work_buf = s_chunk_buf;
+        uint32_t write_len = chdr.compressed_size;
+        if (chdr.compressed_size < chdr.uncompressed_size) {
+            int decomp_len = LZ4_decompress_safe((const char*)s_chunk_buf,
+                                                 (char*)s_buf_a,
+                                                 chdr.compressed_size,
+                                                 CHUNK_SIZE_RAW);
+            if (decomp_len < 0) { install_ok = false; break; }
+            work_buf = s_buf_a;
+            write_len = (uint32_t)decomp_len;
+        }
+        uint64_t t_cpu_end = telemetry_tick();
+
+        // Write directly to CIA installation stream
+        uint64_t t_sd_start = telemetry_tick();
+        u32 written = 0;
+        Result wres = FSFILE_Write(cia_handle, &written, current_offset, work_buf, write_len, 0);
+        uint64_t t_sd_end = telemetry_tick();
+        if (R_FAILED(wres) || written != write_len) {
+            install_ok = false;
+            break;
+        }
+        current_offset += written;
+
+        telemetry_record(t_net_end - t_net_start, t_cpu_end - t_cpu_start, t_sd_end - t_sd_start);
+        send_ack(sock, chdr.chunk_index, ACK_OK, use_telemetry);
+
+        uint64_t elapsed_ms = osGetTime() - t_start;
+        float elapsed_s = elapsed_ms / 1000.0f;
+        LightLock_Lock(&s_stats_lock);
+        s_stats.bytes_received += chdr.compressed_size;
+        s_stats.bytes_written  += write_len;
+        s_stats.chunks_ok       = ++ci;
+        s_stats.current_chunk   = ci;
+        s_stats.net_kbps = elapsed_s > 0.0f ? (s_stats.bytes_received / 1024.0f / elapsed_s) : 0.0f;
+        s_stats.eff_mbps = elapsed_s > 0.0f ? (s_stats.bytes_written / 1048576.0f / elapsed_s) : 0.0f;
+        if (use_telemetry) {
+            ZelNedChunkAckTelemetry snap;
+            telemetry_fill(&snap, ci);
+            s_stats.telem_net_us = snap.t_net_us;
+            s_stats.telem_cpu_us = snap.t_cpu_us;
+            s_stats.telem_sd_us  = snap.t_sd_us;
+            s_stats.wifi_bars    = snap.wifi_bars;
+            s_stats.cpu_load_pct = snap.cpu_load_pct;
+        }
+        LightLock_Unlock(&s_stats_lock);
+    }
+
+    if (!install_ok || ci < fhdr.total_chunks) {
+        AM_CancelCIAInstall(cia_handle);
+        return false;
+    }
+
+    Result fin_res = AM_FinishCiaInstall(cia_handle);
+    if (R_FAILED(fin_res)) {
+        AM_CancelCIAInstall(cia_handle);
+        return false;
+    }
+    return true;
+}
+
 // -- Public API ---------------------------------------------------------------
 
 void receiver_init() {
@@ -400,10 +512,11 @@ void receiver_run() {
             continue;
         }
 
-        bool use_crc32     = (session.flags & FLAG_CRC32)         != 0;
-        bool use_resume    = (session.flags & FLAG_RESUME)        != 0;
-        bool use_telemetry = (session.flags & FLAG_TELEMETRY)     != 0;
-        bool is_benchmark  = (session.flags & FLAG_BENCHMARK_NET) != 0;
+        bool use_crc32      = (session.flags & FLAG_CRC32)         != 0;
+        bool use_resume     = (session.flags & FLAG_RESUME)        != 0;
+        bool use_telemetry  = (session.flags & FLAG_TELEMETRY)     != 0;
+        bool is_benchmark   = (session.flags & FLAG_BENCHMARK_NET) != 0;
+        bool is_cia_install = (session.flags & FLAG_INSTALL_CIA)   != 0;
 
         LightLock_Lock(&s_stats_lock);
         s_stats.connected        = true;
@@ -441,6 +554,8 @@ void receiver_run() {
 
             if (is_benchmark) {
                 receive_benchmark(client_sock, fhdr, use_crc32, use_telemetry);
+            } else if (is_cia_install || fhdr.type == TYPE_CIA_INSTALL) {
+                receive_cia_install(client_sock, fhdr, remote_path, use_crc32, use_telemetry);
             } else {
                 receive_file(client_sock, fhdr, remote_path, use_crc32, use_resume, use_telemetry);
             }
