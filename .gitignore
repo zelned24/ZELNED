@@ -27,6 +27,7 @@ env/
 
 # Resume state (local user data)
 .zelned/
+pc/cache/
 
 # OS
 .DS_Store

@@ -34,6 +34,7 @@ from benchmark import BenchmarkRunner
 from discovery import DiscoveryListener
 from queue_manager import QueueManager, ItemStatus
 from resume_state import ResumeState
+from pokemon_booster import POKEMON_GAMES, prepare_deployment_queue
 
 CONFIG_PATH = Path.home() / ".zelned_config.json"
 
@@ -168,12 +169,13 @@ class ZelNedApp(ctk.CTk):
         self._combo_throttle.set("Unlimited")
         self._combo_throttle.grid(row=2, column=1, padx=4, pady=(0, 8), sticky="w")
 
-        # Tabview: Transfer & Diagnostics
+        # Tabview: Transfer & Diagnostics & Pokémon Turbo
         self._tabview = ctk.CTkTabview(self, corner_radius=12)
         self._tabview.pack(fill="both", expand=True, padx=12, pady=4)
 
         tab_transfer = self._tabview.add("Transfer")
         self._diag_frame = self._tabview.add("Diagnostics")
+        self._pk_tab_frame = self._tabview.add("⚡ Pokémon Turbo")
 
         # ── Tab 1: Transfer ───────────────────────────────────────────────────
         # Drop zone
@@ -284,6 +286,9 @@ class ZelNedApp(ctk.CTk):
         # ── Tab 2: Diagnostics ────────────────────────────────────────────────
         self._build_diagnostics_panel()
 
+        # ── Tab 3: Pokémon Turbo ──────────────────────────────────────────────
+        self._build_pokemon_panel()
+
     # ── Diagnostics Panel ─────────────────────────────────────────────────────
 
     def _build_diagnostics_panel(self):
@@ -361,6 +366,211 @@ class ZelNedApp(ctk.CTk):
                                           font=ctk.CTkFont("Consolas", 10), text_color="#7fba8a")
         self._tuner_log.pack(fill="both", expand=True)
         self._tuner_log.configure(state="disabled")
+
+    # ── Pokémon Turbo Panel ───────────────────────────────────────────────────
+
+    def _build_pokemon_panel(self):
+        pk_frame = ctk.CTkScrollableFrame(self._pk_tab_frame, fg_color="transparent")
+        pk_frame.pack(fill="both", expand=True, padx=4, pady=4)
+
+        # Header card
+        header_card = ctk.CTkFrame(pk_frame, fg_color="#182330", corner_radius=12)
+        header_card.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(
+            header_card,
+            text="⚡ Pokémon Turbo & 60 FPS Booster",
+            font=ctk.CTkFont("Segoe UI", 16, "bold"),
+            text_color="#81d4fa"
+        ).pack(anchor="w", padx=14, pady=(10, 2))
+        ctk.CTkLabel(
+            header_card,
+            text="Instala parches de fluidez (60 FPS sin delineado negro), plugins de aceleración (texto instantáneo & velocidad x2) y trucos QoL directamente por Wi-Fi a tu 3DS sin sacar la SD.",
+            font=ctk.CTkFont("Segoe UI", 11),
+            text_color="#90a0b0",
+            wraplength=640,
+            justify="left"
+        ).pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Game & Version Selector
+        sel_card = ctk.CTkFrame(pk_frame, fg_color="#1e2a3a", corner_radius=12)
+        sel_card.pack(fill="x", pady=(0, 8))
+
+        grid_sel = ctk.CTkFrame(sel_card, fg_color="transparent")
+        grid_sel.pack(fill="x", padx=14, pady=12)
+
+        ctk.CTkLabel(grid_sel, text="Juego de Pokémon:", font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=C_TEXT).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=4)
+
+        game_titles = [f"{g['badge']}  {g['name']}" for g in POKEMON_GAMES.values()]
+        self._pk_keys = list(POKEMON_GAMES.keys())
+
+        self._combo_pk_game = ctk.CTkComboBox(
+            grid_sel, values=game_titles, width=330, command=self._on_pk_game_changed
+        )
+        self._combo_pk_game.set(game_titles[0])
+        self._combo_pk_game.grid(row=0, column=1, sticky="w", pady=4)
+
+        ctk.CTkLabel(grid_sel, text="Versión / Update:", font=ctk.CTkFont("Segoe UI", 12, "bold"), text_color=C_TEXT).grid(row=1, column=0, sticky="w", padx=(0, 10), pady=4)
+        first_game = POKEMON_GAMES[self._pk_keys[0]]
+        self._combo_pk_version = ctk.CTkComboBox(
+            grid_sel, values=first_game.get("versions", ["v1.0"]), width=220
+        )
+        self._combo_pk_version.set(first_game.get("versions", ["v1.0"])[0])
+        self._combo_pk_version.grid(row=1, column=1, sticky="w", pady=4)
+
+        # Options Card
+        opt_card = ctk.CTkFrame(pk_frame, fg_color="#1e2a3a", corner_radius=12)
+        opt_card.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(opt_card, text="Mejoras a Instalar:", font=ctk.CTkFont("Segoe UI", 13, "bold"), text_color="#ffb74d").pack(anchor="w", padx=14, pady=(10, 6))
+
+        self._chk_pk_fps = ctk.CTkCheckBox(
+            opt_card,
+            text="⚡ Parche No-Outlines (60 FPS en batallas - Elimina lag en combates dobles)",
+            font=ctk.CTkFont("Segoe UI", 12),
+            text_color="#e0e0e0", fg_color="#0277bd", hover_color="#01579b"
+        )
+        self._chk_pk_fps.select()
+        self._chk_pk_fps.pack(anchor="w", padx=18, pady=4)
+
+        self._chk_pk_plugin = ctk.CTkCheckBox(
+            opt_card,
+            text="🚀 Plugin CTRPF Turbo (Texto instantáneo en diálogos & Correr x2)",
+            font=ctk.CTkFont("Segoe UI", 12),
+            text_color="#e0e0e0", fg_color="#0277bd", hover_color="#01579b"
+        )
+        self._chk_pk_plugin.select()
+        self._chk_pk_plugin.pack(anchor="w", padx=18, pady=4)
+
+        self._chk_pk_cheats = ctk.CTkCheckBox(
+            opt_card,
+            text="📜 Base de Trucos Rosalina (Accesible in-game pulsando L + Abajo + SELECT)",
+            font=ctk.CTkFont("Segoe UI", 12),
+            text_color="#e0e0e0", fg_color="#0277bd", hover_color="#01579b"
+        )
+        self._chk_pk_cheats.select()
+        self._chk_pk_cheats.pack(anchor="w", padx=18, pady=(4, 12))
+
+        # Instructions Card
+        info_card = ctk.CTkFrame(pk_frame, fg_color="#15202b", corner_radius=12)
+        info_card.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(info_card, text="💡 ¿Cómo se activa en la Nintendo 3DS?", font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color="#81d4fa").pack(anchor="w", padx=14, pady=(8, 2))
+        info_text = (
+            "1. Enciende la 3DS manteniendo presionado SELECT y verifica que esté marcado: 'Enable game patching'.\n"
+            "2. Abre tu juego de Pokémon: el parche de 60 FPS se cargará automáticamente al inicio.\n"
+            "3. En el juego, pulsa SELECT para abrir el menú del Plugin CTRPF, o L + Abajo + SELECT para abrir Rosalina Cheats."
+        )
+        ctk.CTkLabel(info_card, text=info_text, font=ctk.CTkFont("Segoe UI", 11), text_color="#b0bec5", justify="left").pack(anchor="w", padx=14, pady=(0, 10))
+
+        # Action Buttons & Status
+        action_row = ctk.CTkFrame(pk_frame, fg_color="transparent")
+        action_row.pack(fill="x", pady=4)
+
+        self._btn_pk_install = ctk.CTkButton(
+            action_row,
+            text="⚡ Instalar Mejoras en 3DS por Wi-Fi",
+            font=ctk.CTkFont("Segoe UI", 13, "bold"),
+            height=40,
+            fg_color="#2e7d32",
+            hover_color="#1b5e20",
+            command=self._start_pokemon_install
+        )
+        self._btn_pk_install.pack(side="left", padx=(0, 10))
+
+        self._lbl_pk_status = ctk.CTkLabel(
+            action_row, text="", font=ctk.CTkFont("Segoe UI", 11), text_color="#81c784"
+        )
+        self._lbl_pk_status.pack(side="left", fill="x", expand=True)
+
+        self._pk_progress = ctk.CTkProgressBar(pk_frame, height=8, corner_radius=4)
+        self._pk_progress.set(0)
+        self._pk_progress.pack(fill="x", pady=(6, 4))
+
+    def _on_pk_game_changed(self, choice):
+        idx = self._combo_pk_game._values.index(choice) if choice in self._combo_pk_game._values else 0
+        game_key = self._pk_keys[idx]
+        game = POKEMON_GAMES[game_key]
+        vers = game.get("versions", ["v1.0"])
+        self._combo_pk_version.configure(values=vers)
+        self._combo_pk_version.set(vers[0])
+        is_nds = game.get("gen") in (4, 5)
+        if is_nds:
+            self._chk_pk_fps.configure(state="disabled")
+            self._chk_pk_plugin.configure(state="disabled")
+        else:
+            self._chk_pk_fps.configure(state="normal")
+            self._chk_pk_plugin.configure(state="normal")
+
+    def _start_pokemon_install(self):
+        ip = self._get_ip()
+        if not ip:
+            messagebox.showwarning("Sin IP", "Por favor ingresa o selecciona la IP de tu 3DS arriba.")
+            return
+
+        choice = self._combo_pk_game.get()
+        idx = self._combo_pk_game._values.index(choice) if choice in self._combo_pk_game._values else 0
+        game_key = self._pk_keys[idx]
+        version = self._combo_pk_version.get()
+
+        use_fps = bool(self._chk_pk_fps.get())
+        use_plugin = bool(self._chk_pk_plugin.get())
+        use_cheats = bool(self._chk_pk_cheats.get())
+
+        if not any([use_fps, use_plugin, use_cheats]):
+            messagebox.showinfo("Selecciona una opción", "Marca al menos una mejora para instalar.")
+            return
+
+        self._btn_pk_install.configure(state="disabled")
+        self._pk_progress.set(0.0)
+        self._lbl_pk_status.configure(text="Preparando parches...", text_color="#81d4fa")
+
+        threading.Thread(
+            target=self._pokemon_install_worker,
+            args=(ip, game_key, version, use_fps, use_plugin, use_cheats),
+            daemon=True
+        ).start()
+
+    def _pokemon_install_worker(self, ip, game_key, version, use_fps, use_plugin, use_cheats):
+        def _set_status(msg, color="#81d4fa"):
+            self.after(0, lambda: self._lbl_pk_status.configure(text=msg, text_color=color))
+
+        try:
+            queue = prepare_deployment_queue(
+                game_key, version,
+                use_no_outlines=use_fps,
+                use_plugin=use_plugin,
+                use_cheats=use_cheats,
+                status_cb=lambda m: _set_status(m, "#81d4fa")
+            )
+
+            if not queue:
+                _set_status("No se generaron archivos para instalar.", "#ef5350")
+                self.after(0, lambda: self._btn_pk_install.configure(state="normal"))
+                return
+
+            _set_status(f"Conectando a {ip}...", "#ffca28")
+            sock = connect_to_3ds(ip)
+
+            send_session_header(sock, throttle_kbps=0, queue_count=len(queue), resume=False)
+
+            total = len(queue)
+            for idx, (local_path, remote_path, label) in enumerate(queue):
+                _set_status(f"Enviando ({idx+1}/{total}): {label}...", "#81d4fa")
+                send_file(sock, local_path, remote_path, throttle=None)
+                prog = (idx + 1) / total
+                self.after(0, lambda p=prog: self._pk_progress.set(p))
+
+            sock.close()
+            _set_status("¡Instalación completada con éxito!", "#66bb6a")
+            game_name = POKEMON_GAMES[game_key]["name"]
+            self.after(0, lambda: messagebox.showinfo(
+                "¡Éxito!",
+                f"Las mejoras para {game_name} han sido instaladas en tu 3DS.\n\n"
+                "Recuerda tener activado 'Enable game patching' en el menú de Luma3DS (mantén SELECT al encender la consola)."
+            ))
+        except Exception as e:
+            _set_status(f"Error: {e}", "#ef5350")
+            self.after(0, lambda err=str(e): messagebox.showerror("Error al transferir", err))
+        finally:
+            self.after(0, lambda: self._btn_pk_install.configure(state="normal"))
 
     def _update_diagnostics(self):
         if not hasattr(self, "_lbl_bottleneck"):

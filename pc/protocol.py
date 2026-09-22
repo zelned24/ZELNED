@@ -182,7 +182,7 @@ def send_file(
     sock: socket.socket,
     local_path: Path,
     remote_path: str,
-    throttle: ThrottleController,
+    throttle: Optional[ThrottleController] = None,
     resume_offset: int = 0,
     progress_cb: Optional[Callable[[int, int, float], None]] = None,
     use_telemetry: bool = False,
@@ -197,7 +197,7 @@ def send_file(
         sock:           Connected TCP socket to the 3DS.
         local_path:     Path to the file on the PC.
         remote_path:    Relative destination path on sdmc:/ (e.g. '3ds/game.cia').
-        throttle:       ThrottleController instance (kbps=0 for unlimited).
+        throttle:       ThrottleController instance (kbps=0 or None for unlimited).
         resume_offset:  Byte offset to resume from (0 = start from beginning).
         progress_cb:    Called with (bytes_sent, total_bytes, effective_mbps) per chunk.
         use_telemetry:  If True, reads extended 15-byte ACKs with timing data.
@@ -208,6 +208,8 @@ def send_file(
     Returns:
         True on success, False on unrecoverable error.
     """
+    if throttle is None:
+        throttle = ThrottleController(0)
     file_size = local_path.stat().st_size
     path_bytes = remote_path.encode("utf-8")
 
