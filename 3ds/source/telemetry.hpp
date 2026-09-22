@@ -19,6 +19,7 @@
  * All public functions are thread-safe (called only from the receiver thread).
  */
 #pragma once
+#include <3ds.h>
 #include "protocol.hpp"
 #include <stdint.h>
 

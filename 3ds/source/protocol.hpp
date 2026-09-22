@@ -43,8 +43,9 @@ static const char ZELNED_MAGIC[6] = {'Z','E','L','N','E','D'};
 
 // ── ARM11 system clock for tick→µs conversion ────────────────────────────────
 // Old 3DS: 268 111 856 Hz   |   New 3DS (boosted): 804 333 568 Hz
-// Use svcGetSystemTick() for high-resolution timing; divide by this constant.
+#ifndef SYSCLOCK_ARM11
 #define SYSCLOCK_ARM11  268111856ULL
+#endif
 
 // Convert ARM11 ticks to microseconds (safe for values up to ~79 seconds)
 static inline uint32_t ticks_to_us(uint64_t ticks) {
