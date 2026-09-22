@@ -1,0 +1,84 @@
+name: Build Nintendo 3DS Homebrew (.3dsx)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-3dsx:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitarm:latest
+
+    env:
+      DEVKITPRO: /opt/devkitpro
+      DEVKITARM: /opt/devkitpro/devkitARM
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build ZelNeD.3dsx
+        run: |
+          export PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitARM/bin:$PATH
+          cd 3ds
+          make clean || true
+          make 2>&1 | tee /tmp/build.log
+          echo "=== PWD ===" >> /tmp/build.log
+          pwd >> /tmp/build.log
+          echo "=== 3ds dir ===" >> /tmp/build.log
+          ls -la >> /tmp/build.log
+          echo "=== build dir ===" >> /tmp/build.log
+          ls -la build/ >> /tmp/build.log || true
+          echo "=== find 3dsx ===" >> /tmp/build.log
+          find / -name "*ZelNeD*" 2>/dev/null >> /tmp/build.log || true
+
+      - name: Post Build Log as Commit Comment
+        if: always()
+        run: |
+          python3 -c "
+          import os, urllib.request, json
+          token = os.environ.get('GITHUB_TOKEN')
+          repo = os.environ.get('GITHUB_REPOSITORY')
+          sha = os.environ.get('GITHUB_SHA')
+          try:
+              with open('/tmp/build.log', 'r') as f:
+                  log = f.read()
+          except Exception as e:
+              log = str(e)
+          body = json.dumps({'body': f'### 3DS Build Log:\n\`\`\`text\n{log[-3000:]}\n\`\`\`'})
+          req = urllib.request.Request(f'https://api.github.com/repos/{repo}/commits/{sha}/comments', data=body.encode('utf-8'), headers={'Authorization': f'token {token}', 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json', 'User-Agent': 'py'})
+          urllib.request.urlopen(req)
+          print('Successfully posted build log comment to commit!')
+          "
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Upload 3DSX Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZelNeD-3dsx
+          path: |
+            3ds/ZelNeD.3dsx
+            3ds/ZelNeD.smdh
+
+      - name: Publish Direct Download Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: latest-build
+          name: "ZelNeD 3DS Executable"
+          body: "Official compiled Nintendo 3DS executable (ZelNeD.3dsx) ready for Homebrew Launcher."
+          draft: false
+          prerelease: false
+          files: |
+            3ds/ZelNeD.3dsx
+            3ds/ZelNeD.smdh
